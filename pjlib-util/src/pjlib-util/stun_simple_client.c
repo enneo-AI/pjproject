@@ -142,16 +142,32 @@ PJ_DEF(pj_status_t) pjstun_get_mapped_addr2(pj_pool_factory *pf,
 
     TRACE_((THIS_FILE, "  Done initialization."));
 
-#if defined(PJ_SELECT_NEEDS_NFDS) && PJ_SELECT_NEEDS_NFDS!=0
+    /* Always derive nfds from the sockets we actually wait on, regardless of
+     * PJ_SELECT_NEEDS_NFDS. pj/compat/os_linux.h hard-defines that macro to 0,
+     * so on Linux this used to select() on FD_SETSIZE-1 (1023): a socket whose
+     * descriptor number is at or above FD_SETSIZE was never observed, and the
+     * STUN transaction burned its full retransmit schedule (4 x 500ms) before
+     * falling back to the bound address. pj_fd_set_t is sized by
+     * PJ_IOQUEUE_MAX_HANDLES, not by FD_SETSIZE, and Linux select(2) accepts an
+     * nfds above FD_SETSIZE, so passing the real maximum is safe.
+     */
     nfds = -1;
     for (i=0; i<sock_cnt; ++i) {
         if (sock[i] > nfds) {
             nfds = sock[i];
         }
     }
-#else
-    nfds = FD_SETSIZE-1;
-#endif
+
+    /* Give up rather than write past pj_fd_set_t's buffer. Callers treat a
+     * failure here as "no mapped address" and fall back to the bound address.
+     */
+    if (nfds >= PJ_IOQUEUE_MAX_HANDLES) {
+        PJ_LOG(3,(THIS_FILE, "STUN skipped: socket descriptor %d is beyond "
+                             "PJ_IOQUEUE_MAX_HANDLES (%d)",
+                             nfds, PJ_IOQUEUE_MAX_HANDLES));
+        status = PJ_ETOOMANY;
+        goto on_error;
+    }
 
     /* Main retransmission loop. */
     for (send_cnt=0; send_cnt<MAX_REQUEST; ++send_cnt) {
