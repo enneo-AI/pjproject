@@ -2661,6 +2661,7 @@ PJ_DEF(pj_status_t) pjmedia_conf_get_port_info( pjmedia_conf *conf,
     info->bits_per_sample = conf->bits_per_sample;
     info->tx_adj_level = conf_port->tx_adj_level - NORMAL_LEVEL;
     info->rx_adj_level = conf_port->rx_adj_level - NORMAL_LEVEL;
+    info->gen = 0;
 
     /* Unlock mutex */
     pj_mutex_unlock(conf->mutex);

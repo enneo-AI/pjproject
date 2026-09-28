@@ -90,6 +90,11 @@ typedef struct pjmedia_conf_port_info
     unsigned            bits_per_sample;    /**< Bits per sample.           */
     int                 tx_adj_level;       /**< Tx level adjustment.       */
     int                 rx_adj_level;       /**< Rx level adjustment.       */
+    unsigned            gen;                /**< Generation of the slot,
+                                                 changed every time the slot
+                                                 is given to a new port. Only
+                                                 the serial bridge tracks it;
+                                                 other backends report 0.   */
 } pjmedia_conf_port_info;
 
 /** 
@@ -629,6 +634,36 @@ PJ_DECL(pj_status_t) pjmedia_conf_connect_port( pjmedia_conf *conf,
                                                 int adj_level );
 
 
+#if PJMEDIA_CONF_BACKEND == PJMEDIA_CONF_SERIAL_BRIDGE_BACKEND
+/**
+ * Same as #pjmedia_conf_connect_port(), but only if both slots are still
+ * held by the ports the caller observed.
+ *
+ * A slot number is reused as soon as the bridge frees it, so a slot read
+ * with #pjmedia_conf_get_port_info() may belong to another port by the time
+ * the caller acts on it. Pass the \a gen values reported by that read: the
+ * check and the queuing happen under one bridge lock, so the operation can
+ * only be queued for the ports that were observed.
+ *
+ * @param conf          The conference bridge.
+ * @param src_slot      Source slot.
+ * @param src_gen       Generation of the source slot.
+ * @param sink_slot     Sink slot.
+ * @param sink_gen      Generation of the sink slot.
+ * @param adj_level     Adjustment level, see #pjmedia_conf_connect_port().
+ *
+ * @return              PJ_SUCCESS on success, PJ_EGONE if either slot is
+ *                      empty, being removed, or held by another port.
+ */
+PJ_DECL(pj_status_t) pjmedia_conf_connect_port_gen( pjmedia_conf *conf,
+                                                    unsigned src_slot,
+                                                    unsigned src_gen,
+                                                    unsigned sink_slot,
+                                                    unsigned sink_gen,
+                                                    int adj_level );
+#endif
+
+
 /**
  * Disconnect unidirectional audio from the specified source to the specified
  * sink slot.
@@ -831,6 +866,28 @@ PJ_DECL(pj_status_t) pjmedia_conf_get_signal_level(pjmedia_conf *conf,
 PJ_DECL(pj_status_t) pjmedia_conf_adjust_rx_level( pjmedia_conf *conf,
                                                    unsigned slot,
                                                    int adj_level );
+
+
+#if PJMEDIA_CONF_BACKEND == PJMEDIA_CONF_SERIAL_BRIDGE_BACKEND
+/**
+ * Same as #pjmedia_conf_adjust_rx_level(), but only if the slot is still
+ * held by the port the caller observed. See
+ * #pjmedia_conf_connect_port_gen() for why this is needed.
+ *
+ * @param conf          The conference bridge.
+ * @param slot          Slot number of the port.
+ * @param gen           Generation of the slot, as reported by
+ *                      #pjmedia_conf_get_port_info().
+ * @param adj_level     Adjustment level, see #pjmedia_conf_adjust_rx_level().
+ *
+ * @return              PJ_SUCCESS on success, PJ_EGONE if the slot is empty,
+ *                      being removed, or held by another port.
+ */
+PJ_DECL(pj_status_t) pjmedia_conf_adjust_rx_level_gen( pjmedia_conf *conf,
+                                                       unsigned slot,
+                                                       unsigned gen,
+                                                       int adj_level );
+#endif
 
 
 /**
