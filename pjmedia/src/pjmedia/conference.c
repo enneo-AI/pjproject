@@ -682,6 +682,16 @@ static pj_status_t create_pasv_port( pjmedia_conf *conf,
 
 
 /*
+ * Start a new generation for a slot that is given a port. Generation 0 is
+ * never given out, so callers can use it to mean "no generation".
+ */
+static void bump_port_gen(pjmedia_conf *conf, unsigned slot)
+{
+    if (++conf->port_gen[slot] == 0)
+        conf->port_gen[slot] = 1;
+}
+
+/*
  * Create port zero for the sound device.
  */
 static pj_status_t create_sound_port( pj_pool_t *pool,
@@ -746,7 +756,7 @@ static pj_status_t create_sound_port( pj_pool_t *pool,
 
      /* Add the port to the bridge */
     conf->ports[0] = conf_port;
-    ++conf->port_gen[0];
+    bump_port_gen(conf, 0);
     conf->port_cnt++;
 
     return PJ_SUCCESS;
@@ -1103,7 +1113,7 @@ PJ_DEF(pj_status_t) pjmedia_conf_add_port( pjmedia_conf *conf,
 
     /* Put the port, but don't add port counter yet */
     conf->ports[index] = conf_port;
-    ++conf->port_gen[index];
+    bump_port_gen(conf, index);
     //conf->port_cnt++;
 
     /* Queue the operation */
@@ -1243,7 +1253,7 @@ PJ_DEF(pj_status_t) pjmedia_conf_add_passive_port( pjmedia_conf *conf,
 
     /* Put the port. */
     conf->ports[index] = conf_port;
-    ++conf->port_gen[index];
+    bump_port_gen(conf, index);
     conf->port_cnt++;
 
     /* Done. */
@@ -1386,7 +1396,11 @@ on_return:
     if (start_sound)
         resume_sound(conf);
 
-    if (status != PJ_SUCCESS) {
+    /* A generation mismatch is routine for the caller, not an error. */
+    if (status == PJ_EGONE) {
+        PJ_PERROR(4,(THIS_FILE, status, "Connect ports %d->%d skipped",
+                     src_slot, sink_slot));
+    } else if (status != PJ_SUCCESS) {
         PJ_PERROR(3,(THIS_FILE, status, "Connect ports %d->%d failed",
                      src_slot, sink_slot));
     }

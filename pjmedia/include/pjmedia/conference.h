@@ -92,9 +92,10 @@ typedef struct pjmedia_conf_port_info
     int                 rx_adj_level;       /**< Rx level adjustment.       */
     unsigned            gen;                /**< Generation of the slot,
                                                  changed every time the slot
-                                                 is given to a new port. Only
-                                                 the serial bridge tracks it;
-                                                 other backends report 0.   */
+                                                 is given to a new port and
+                                                 never 0. Only the serial
+                                                 bridge tracks it; other
+                                                 backends report 0.         */
 } pjmedia_conf_port_info;
 
 /** 
