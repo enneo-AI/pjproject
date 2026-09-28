@@ -93,9 +93,8 @@ typedef struct pjmedia_conf_port_info
     unsigned            gen;                /**< Generation of the slot,
                                                  changed every time the slot
                                                  is given to a new port and
-                                                 never 0. Only the serial
-                                                 bridge tracks it; other
-                                                 backends report 0.         */
+                                                 never 0. The switch board
+                                                 backend reports 0.         */
 } pjmedia_conf_port_info;
 
 /** 
@@ -635,7 +634,6 @@ PJ_DECL(pj_status_t) pjmedia_conf_connect_port( pjmedia_conf *conf,
                                                 int adj_level );
 
 
-#if PJMEDIA_CONF_BACKEND == PJMEDIA_CONF_SERIAL_BRIDGE_BACKEND
 /**
  * Same as #pjmedia_conf_connect_port(), but only if both slots are still
  * held by the ports the caller observed.
@@ -655,6 +653,8 @@ PJ_DECL(pj_status_t) pjmedia_conf_connect_port( pjmedia_conf *conf,
  *
  * @return              PJ_SUCCESS on success, PJ_EGONE if either slot is
  *                      empty, being removed, or held by another port.
+ *                      The switch board backend does not track
+ *                      generations and returns PJ_ENOTSUP.
  */
 PJ_DECL(pj_status_t) pjmedia_conf_connect_port_gen( pjmedia_conf *conf,
                                                     unsigned src_slot,
@@ -662,7 +662,6 @@ PJ_DECL(pj_status_t) pjmedia_conf_connect_port_gen( pjmedia_conf *conf,
                                                     unsigned sink_slot,
                                                     unsigned sink_gen,
                                                     int adj_level );
-#endif
 
 
 /**
@@ -869,7 +868,6 @@ PJ_DECL(pj_status_t) pjmedia_conf_adjust_rx_level( pjmedia_conf *conf,
                                                    int adj_level );
 
 
-#if PJMEDIA_CONF_BACKEND == PJMEDIA_CONF_SERIAL_BRIDGE_BACKEND
 /**
  * Same as #pjmedia_conf_adjust_rx_level(), but only if the slot is still
  * held by the port the caller observed. See
@@ -883,12 +881,12 @@ PJ_DECL(pj_status_t) pjmedia_conf_adjust_rx_level( pjmedia_conf *conf,
  *
  * @return              PJ_SUCCESS on success, PJ_EGONE if the slot is empty,
  *                      being removed, or held by another port.
+ *                      The switch board backend returns PJ_ENOTSUP.
  */
 PJ_DECL(pj_status_t) pjmedia_conf_adjust_rx_level_gen( pjmedia_conf *conf,
                                                        unsigned slot,
                                                        unsigned gen,
                                                        int adj_level );
-#endif
 
 
 /**

@@ -362,6 +362,8 @@ struct pjmedia_conf
     char                  master_name_buf[80]; /**< Port0 name buffer.      */
     pj_mutex_t           *mutex;        /**< Conference mutex.              */
     struct conf_port    **ports;        /**< Array of ports.                */
+    unsigned             *port_gen;     /**< Per-slot generation, bumped
+                                             whenever a slot gets a port.   */
     unsigned              sampling_rate;/**< Sampling rate.                 */
     unsigned              channel_count;/**< Number of channels (1=mono).   */
     unsigned              samples_per_frame;    /**< Samples per frame.     */
@@ -916,6 +918,16 @@ static pj_status_t create_pasv_port( pjmedia_conf *conf,
 
 
 /*
+ * Start a new generation for a slot that is given a port. Generation 0 is
+ * never given out, so callers can use it to mean "no generation".
+ */
+static void bump_port_gen(pjmedia_conf *conf, unsigned slot)
+{
+    if (++conf->port_gen[slot] == 0)
+        conf->port_gen[slot] = 1;
+}
+
+/*
  * Create port zero for the sound device.
  */
 static pj_status_t create_sound_port( pj_pool_t *pool,
@@ -984,6 +996,7 @@ static pj_status_t create_sound_port( pj_pool_t *pool,
 
      /* Add the port to the bridge */
     conf->ports[0] = conf_port;
+    bump_port_gen(conf, 0);
     ++conf->port_cnt;
     /* sound device (from 0 SLOT) to 0 idx, others to next idx */
     pj_assert(!conf->upper_bound_reg);
@@ -1077,6 +1090,11 @@ PJ_DEF(pj_status_t) pjmedia_conf_create2(pj_pool_t *pool_,
     PJ_ASSERT_ON_FAIL(conf->ports, 
                               { status = PJ_ENOMEM; goto on_return; });
     pj_bzero(conf->ports, conf->max_ports * sizeof(struct conf_port*));
+
+    conf->port_gen =
+        pj_pool_calloc(pool, conf->max_ports, sizeof(unsigned));
+    PJ_ASSERT_ON_FAIL(conf->port_gen,
+                              { status = PJ_ENOMEM; goto on_return; });
 
     conf->active_ports = 
         pj_pool_calloc(pool, conf->max_ports, sizeof(SLOT_TYPE));
@@ -1489,6 +1507,7 @@ PJ_DEF(pj_status_t) pjmedia_conf_add_port( pjmedia_conf *conf,
      * ADD_PORT op atomically.
      */
     conf->ports[index] = conf_port;
+    bump_port_gen(conf, index);
 
     /* Queue the operation */
     ope = get_free_op_entry(conf);
@@ -1683,6 +1702,7 @@ PJ_DEF(pj_status_t) pjmedia_conf_add_passive_port( pjmedia_conf *conf,
      * ADD_PORT op atomically.
      */
     conf->ports[index] = conf_port;
+    bump_port_gen(conf, index);
 
     /* Queue the operation */
     ope = get_free_op_entry(conf);
@@ -1770,10 +1790,27 @@ PJ_DEF(pj_status_t) pjmedia_conf_configure_port( pjmedia_conf *conf,
 /*
  * Connect port.
  */
-PJ_DEF(pj_status_t) pjmedia_conf_connect_port( pjmedia_conf *conf,
-                                               unsigned src_slot,
-                                               unsigned sink_slot,
-                                               int adj_level )
+/*
+ * Return the port in the slot if it is still the one of generation gen.
+ */
+static struct conf_port *get_port_gen(pjmedia_conf *conf, unsigned slot,
+                                      unsigned gen)
+{
+    struct conf_port *conf_port = conf->ports[slot];
+
+    if (!conf_port || conf_port->removing || conf->port_gen[slot] != gen)
+        return NULL;
+    return conf_port;
+}
+
+/*
+ * Connect port, checking slot generations when gens is not NULL.
+ */
+static pj_status_t connect_port( pjmedia_conf *conf,
+                                 unsigned src_slot,
+                                 unsigned sink_slot,
+                                 const unsigned gens[2],
+                                 int adj_level )
 {
     struct conf_port *src_port, *dst_port;
     pj_bool_t start_sound = PJ_FALSE;
@@ -1798,8 +1835,17 @@ PJ_DEF(pj_status_t) pjmedia_conf_connect_port( pjmedia_conf *conf,
     pj_mutex_lock(conf->mutex);
 
     /* Ports must be valid and not being removed. */
-    src_port = conf->ports[src_slot];
-    dst_port = conf->ports[sink_slot];
+    if (gens) {
+        src_port = get_port_gen(conf, src_slot, gens[0]);
+        dst_port = get_port_gen(conf, sink_slot, gens[1]);
+        if (!src_port || !dst_port) {
+            status = PJ_EGONE;
+            goto on_return;
+        }
+    } else {
+        src_port = conf->ports[src_slot];
+        dst_port = conf->ports[sink_slot];
+    }
     if (!src_port || !dst_port || src_port->removing || dst_port->removing) {
         status = PJ_EINVAL;
         goto on_return;
@@ -1834,7 +1880,11 @@ on_return:
     if (start_sound)
         resume_sound(conf);
 
-    if (status != PJ_SUCCESS) {
+    /* A generation mismatch is routine for the caller, not an error. */
+    if (status == PJ_EGONE) {
+        PJ_PERROR(4,(THIS_FILE, status, "Connect ports %d->%d skipped",
+                     src_slot, sink_slot));
+    } else if (status != PJ_SUCCESS) {
         PJ_PERROR(3,(THIS_FILE, status, "Connect ports %d->%d failed",
                      src_slot, sink_slot));
     }
@@ -1842,6 +1892,34 @@ on_return:
     pj_log_pop_indent();
 
     return status;
+}
+
+/*
+ * Connect port.
+ */
+PJ_DEF(pj_status_t) pjmedia_conf_connect_port( pjmedia_conf *conf,
+                                               unsigned src_slot,
+                                               unsigned sink_slot,
+                                               int adj_level )
+{
+    return connect_port(conf, src_slot, sink_slot, NULL, adj_level);
+}
+
+/*
+ * Connect port, only if both slots still hold the observed ports.
+ */
+PJ_DEF(pj_status_t) pjmedia_conf_connect_port_gen( pjmedia_conf *conf,
+                                                   unsigned src_slot,
+                                                   unsigned src_gen,
+                                                   unsigned sink_slot,
+                                                   unsigned sink_gen,
+                                                   int adj_level )
+{
+    unsigned gens[2];
+
+    gens[0] = src_gen;
+    gens[1] = sink_gen;
+    return connect_port(conf, src_slot, sink_slot, gens, adj_level);
 }
 
 static pj_status_t op_connect_ports(pjmedia_conf *conf, 
@@ -2378,6 +2456,11 @@ PJ_DEF(pj_status_t) pjmedia_conf_remove_port( pjmedia_conf *conf,
         if (found) {
             pjmedia_conf_op_param prm;
 
+            /* Nothing may be queued for the port once the mutex is released,
+             * or it would run after the slot is given to another port.
+             */
+            conf_port->removing = PJ_TRUE;
+
             /* Release mutex to avoid deadlock */
             pj_mutex_unlock(conf->mutex);
 
@@ -2661,7 +2744,7 @@ PJ_DEF(pj_status_t) pjmedia_conf_get_port_info( pjmedia_conf *conf,
     info->bits_per_sample = conf->bits_per_sample;
     info->tx_adj_level = conf_port->tx_adj_level - NORMAL_LEVEL;
     info->rx_adj_level = conf_port->rx_adj_level - NORMAL_LEVEL;
-    info->gen = 0;
+    info->gen = conf->port_gen[slot];
 
     /* Unlock mutex */
     pj_mutex_unlock(conf->mutex);
@@ -2766,6 +2849,38 @@ PJ_DEF(pj_status_t) pjmedia_conf_adjust_rx_level( pjmedia_conf *conf,
     conf_port->rx_adj_level = adj_level + NORMAL_LEVEL;
 
     /* Unlock mutex */
+    pj_mutex_unlock(conf->mutex);
+
+    return PJ_SUCCESS;
+}
+
+
+/*
+ * Adjust RX level of individual port, only if the slot still holds the
+ * observed port.
+ */
+PJ_DEF(pj_status_t) pjmedia_conf_adjust_rx_level_gen( pjmedia_conf *conf,
+                                                      unsigned slot,
+                                                      unsigned gen,
+                                                      int adj_level )
+{
+    struct conf_port *conf_port;
+
+    /* Check arguments */
+    PJ_ASSERT_RETURN(conf && slot<conf->max_ports, PJ_EINVAL);
+    PJ_ASSERT_RETURN(adj_level >= -128, PJ_EINVAL);
+
+    pj_mutex_lock(conf->mutex);
+
+    conf_port = get_port_gen(conf, slot, gen);
+    if (conf_port == NULL) {
+        pj_mutex_unlock(conf->mutex);
+        return PJ_EGONE;
+    }
+
+    /* Set normalized adjustment level. */
+    conf_port->rx_adj_level = adj_level + NORMAL_LEVEL;
+
     pj_mutex_unlock(conf->mutex);
 
     return PJ_SUCCESS;

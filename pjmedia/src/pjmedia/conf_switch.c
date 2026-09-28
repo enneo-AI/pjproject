@@ -1022,6 +1022,38 @@ PJ_DEF(pj_status_t) pjmedia_conf_adjust_rx_level( pjmedia_conf *conf,
 
 
 /*
+ * The switch board does not track slot generations.
+ */
+PJ_DEF(pj_status_t) pjmedia_conf_connect_port_gen( pjmedia_conf *conf,
+                                                   unsigned src_slot,
+                                                   unsigned src_gen,
+                                                   unsigned sink_slot,
+                                                   unsigned sink_gen,
+                                                   int adj_level )
+{
+    PJ_UNUSED_ARG(conf);
+    PJ_UNUSED_ARG(src_slot);
+    PJ_UNUSED_ARG(src_gen);
+    PJ_UNUSED_ARG(sink_slot);
+    PJ_UNUSED_ARG(sink_gen);
+    PJ_UNUSED_ARG(adj_level);
+    return PJ_ENOTSUP;
+}
+
+PJ_DEF(pj_status_t) pjmedia_conf_adjust_rx_level_gen( pjmedia_conf *conf,
+                                                      unsigned slot,
+                                                      unsigned gen,
+                                                      int adj_level )
+{
+    PJ_UNUSED_ARG(conf);
+    PJ_UNUSED_ARG(slot);
+    PJ_UNUSED_ARG(gen);
+    PJ_UNUSED_ARG(adj_level);
+    return PJ_ENOTSUP;
+}
+
+
+/*
  * Adjust TX level of individual port.
  */
 PJ_DEF(pj_status_t) pjmedia_conf_adjust_tx_level( pjmedia_conf *conf,
