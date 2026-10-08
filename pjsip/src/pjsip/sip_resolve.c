@@ -285,8 +285,14 @@ PJ_DEF(void) pjsip_resolve( pjsip_resolver_t *resolver,
 
     /* If target is an IP address, or if resolver is not configured, 
      * we can just finish the resolution now using pj_gethostbyname()
+     *
+     * enneo: so can a hostname with an explicit port. RFC 3263 skips SRV
+     * for it, leaving a plain A/AAAA lookup, and getaddrinfo() does that one
+     * through the system's NSS, so /etc/hosts entries and resolv.conf search
+     * domains keep working with the DNS resolver configured. The resolver is
+     * only needed for the SRV lookup of a hostname without a port.
      */
-    if (ip_addr_ver || resolver->res == NULL) {
+    if (ip_addr_ver || resolver->res == NULL || target->addr.port != 0) {
         char addr_str[PJ_INET6_ADDRSTRLEN+10];
         pj_uint16_t srv_port;
         unsigned i;
@@ -334,7 +340,8 @@ PJ_DEF(void) pjsip_resolve( pjsip_resolver_t *resolver,
             unsigned count;
 
             PJ_LOG(5,(THIS_FILE,
-                      "DNS resolver not available, target '%.*s:%d' type=%s "
+                      "DNS resolver not available or port given, "
+                      "target '%.*s:%d' type=%s "
                       "will be resolved with getaddrinfo()",
                       (int)target->addr.host.slen,
                       target->addr.host.ptr,
