@@ -28,6 +28,9 @@
 #include <pj/os.h>
 #include <pj/pool.h>
 #include <pj/string.h>
+#if defined(__linux__)
+#   include <netinet/tcp.h>
+#endif
 
 /* Only declare the API if PJ_HAS_TCP is true */
 #if defined(PJ_HAS_TCP) && PJ_HAS_TCP!=0
@@ -975,6 +978,39 @@ static pj_status_t tcp_start_read(struct tcp_transport *tcp)
 }
 
 
+/* Fail-fast options for outgoing connections, see PJSIP_TCP_CONNECT_SYN_RETRIES
+ * and PJSIP_TCP_USER_TIMEOUT_MSEC. Both are no-ops at their default of 0 and
+ * on anything but Linux.
+ */
+static void tcp_apply_failfast(pj_sock_t sock, const char *obj_name)
+{
+#if defined(__linux__) && (PJSIP_TCP_CONNECT_SYN_RETRIES > 0 || PJSIP_TCP_USER_TIMEOUT_MSEC > 0)
+    int val;
+    pj_status_t status;
+
+#   if PJSIP_TCP_CONNECT_SYN_RETRIES > 0
+    val = PJSIP_TCP_CONNECT_SYN_RETRIES;
+    status = pj_sock_setsockopt(sock, pj_SOL_TCP(), TCP_SYNCNT, &val,
+                                sizeof(val));
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(4, (obj_name, status, "Warning: error setting TCP_SYNCNT"));
+    }
+#   endif
+#   if PJSIP_TCP_USER_TIMEOUT_MSEC > 0
+    val = PJSIP_TCP_USER_TIMEOUT_MSEC;
+    status = pj_sock_setsockopt(sock, pj_SOL_TCP(), TCP_USER_TIMEOUT, &val,
+                                sizeof(val));
+    if (status != PJ_SUCCESS) {
+        PJ_PERROR(4, (obj_name, status,
+                      "Warning: error setting TCP_USER_TIMEOUT"));
+    }
+#   endif
+#else
+    PJ_UNUSED_ARG(sock);
+    PJ_UNUSED_ARG(obj_name);
+#endif
+}
+
 /* This callback is called by transport manager for the TCP factory
  * to create outgoing transport to the specified destination.
  */
@@ -1025,6 +1061,8 @@ static pj_status_t lis_create_transport(pjsip_tpfactory *factory,
                           "Warning: error applying socket options"));
         }
     }
+
+    tcp_apply_failfast(sock, listener->factory.obj_name);
 
     /* Bind to listener's address and any port */
     pj_bzero(&local_addr, sizeof(local_addr));

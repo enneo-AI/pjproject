@@ -840,6 +840,33 @@ PJ_INLINE(pjsip_cfg_t*) pjsip_cfg(void)
 #endif
 
 /**
+ * Number of SYN retransmissions before an outgoing TCP connect() fails
+ * (Linux TCP_SYNCNT). With the kernel default of 6 a host that drops SYNs
+ * keeps connect() pending for about two minutes, longer than any SIP
+ * transaction, so the transaction times out instead of failing over to the
+ * next resolved address. 2 fails the connect after about 7 seconds.
+ * 0 leaves the kernel default. Only honoured on Linux.
+ *
+ * Default: 0
+ */
+#ifndef PJSIP_TCP_CONNECT_SYN_RETRIES
+#   define PJSIP_TCP_CONNECT_SYN_RETRIES    0
+#endif
+
+/**
+ * Milliseconds an outgoing TCP connection may carry unacknowledged data
+ * before the kernel aborts it (Linux TCP_USER_TIMEOUT). Without it a peer
+ * that vanished without a RST keeps the connection alive for the kernel's
+ * full retransmission run, around 15 minutes, and every request on it is
+ * lost until then. 0 leaves the kernel default. Only honoured on Linux.
+ *
+ * Default: 0
+ */
+#ifndef PJSIP_TCP_USER_TIMEOUT_MSEC
+#   define PJSIP_TCP_USER_TIMEOUT_MSEC      0
+#endif
+
+/**
  * Set the interval to send keep-alive packet for TLS transports.
  * If the value is zero, keep-alive will be disabled for TLS.
  *
